@@ -1,5 +1,23 @@
 # Troubleshooting
 
+## Model path missing or unrecognized
+
+Image, video, upscale, and convert commands need a weight file before they can
+run. Pass `-m` / `--model` for a full checkpoint, or `--diffusion-model` for a
+standalone diffusion file. Upscale mode uses `--upscale-model` instead.
+
+If the command stops before loading weights, read the flag named in the error:
+
+- `path not found` means that exact path does not exist. Check the spelling and
+  that the command is running from the directory you expected.
+- `could not identify a supported model` means the path exists, but it is not a
+  `.safetensors`, `.gguf`, `.ckpt`, `.pt`, `.pth` file, a safetensors index, or
+  a diffusers directory.
+- `--model or --diffusion-model is required` means neither flag was set. `--mode vid_gen` does not remove this requirement.
+
+Run `sd-cli --help` for the full option list. The error itself is printed above
+that reminder.
+
 ## Video model used in image generation mode
 
 If generation reports that a model cannot be run with `generate_image()`, add

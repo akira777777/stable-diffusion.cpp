@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <climits>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -241,8 +244,180 @@ void add_log_options(ArgOptions& options, sd_log_level_t& level) {
                                       }});
 }
 
+static bool parse_cli_int(const char* text, int& out) {
+    if (text == nullptr || text[0] == '\0') {
+        return false;
+    }
+    char* end        = nullptr;
+    errno            = 0;
+    const long value = std::strtol(text, &end, 10);
+    if (end == text || *end != '\0' || errno == ERANGE || value < INT_MIN || value > INT_MAX) {
+        return false;
+    }
+    out = static_cast<int>(value);
+    return true;
+}
+
+static bool parse_cli_float(const char* text, float& out) {
+    if (text == nullptr || text[0] == '\0') {
+        return false;
+    }
+    char* end         = nullptr;
+    errno             = 0;
+    const float value = std::strtof(text, &end);
+    if (end == text || *end != '\0' || errno == ERANGE || !std::isfinite(value)) {
+        return false;
+    }
+    out = value;
+    return true;
+}
+
+static int edit_distance_bounded(const std::string& left, const std::string& right, int limit) {
+    if (left.size() > 64 || right.size() > 64 || std::abs(static_cast<int>(left.size()) - static_cast<int>(right.size())) > limit) {
+        return limit + 1;
+    }
+    const int rows = static_cast<int>(left.size());
+    const int cols = static_cast<int>(right.size());
+    std::vector<int> previous(static_cast<size_t>(cols) + 1);
+    std::vector<int> current(static_cast<size_t>(cols) + 1);
+    for (int col = 0; col <= cols; ++col) {
+        previous[static_cast<size_t>(col)] = col;
+    }
+    for (int row = 1; row <= rows; ++row) {
+        current[0]  = row;
+        int row_min = current[0];
+        for (int col = 1; col <= cols; ++col) {
+            const int cost = left[static_cast<size_t>(row - 1)] == right[static_cast<size_t>(col - 1)] ? 0 : 1;
+            current[static_cast<size_t>(col)] = std::min({previous[static_cast<size_t>(col)] + 1,
+                                                         current[static_cast<size_t>(col - 1)] + 1,
+                                                         previous[static_cast<size_t>(col - 1)] + cost});
+            row_min = std::min(row_min, current[static_cast<size_t>(col)]);
+        }
+        if (row_min > limit) {
+            return limit + 1;
+        }
+        previous.swap(current);
+    }
+    return previous[static_cast<size_t>(cols)];
+}
+
+static std::string lowercase_ascii(std::string text) {
+    for (char& ch : text) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return text;
+}
+
+static std::string suggest_long_options(const std::string& arg, const std::vector<ArgOptions>& options_list) {
+    std::string query = arg;
+    while (!query.empty() && query.front() == '-') {
+        query.erase(query.begin());
+    }
+    query = lowercase_ascii(query);
+    if (query.size() < 2) {
+        return {};
+    }
+
+    std::vector<std::pair<int, std::string>> ranked;
+    auto consider = [&](const std::string& name) {
+        if (name.size() < 3 || name.compare(0, 2, "--") != 0) {
+            return;
+        }
+        const std::string bare = lowercase_ascii(name.substr(2));
+        int distance           = edit_distance_bounded(query, bare, 3);
+        if (query.size() >= 3 && bare.compare(0, query.size(), query) == 0) {
+            distance = std::min(distance, 1);
+        } else if (query.size() >= 4 && bare.find(query) != std::string::npos) {
+            distance = std::min(distance, 2);
+        }
+        if (distance <= 3) {
+            ranked.emplace_back(distance, name);
+        }
+    };
+    for (const auto& options : options_list) {
+        for (const auto& option : options.string_options) {
+            consider(option.long_name);
+        }
+        for (const auto& option : options.int_options) {
+            consider(option.long_name);
+        }
+        for (const auto& option : options.float_options) {
+            consider(option.long_name);
+        }
+        for (const auto& option : options.bool_options) {
+            consider(option.long_name);
+        }
+        for (const auto& option : options.manual_options) {
+            consider(option.long_name);
+        }
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const auto& left, const auto& right) {
+        if (left.first != right.first) {
+            return left.first < right.first;
+        }
+        return left.second < right.second;
+    });
+
+    std::string suggestion;
+    int shown = 0;
+    for (const auto& item : ranked) {
+        if (suggestion.find(item.second) != std::string::npos) {
+            continue;
+        }
+        if (shown == 3) {
+            break;
+        }
+        if (!suggestion.empty()) {
+            suggestion += ", ";
+        }
+        suggestion += item.second;
+        ++shown;
+    }
+    return suggestion;
+}
+
+static bool require_existing_path(const std::string& path, const char* flag, bool directory) {
+    if (path.empty()) {
+        return true;
+    }
+    std::error_code error;
+    const fs::path file = fs::u8path(path);
+    if (directory) {
+        if (!fs::is_directory(file, error)) {
+            LOG_ERROR("error: %s must be an existing directory: '%s'", flag, path.c_str());
+            return false;
+        }
+        return true;
+    }
+    if (!fs::exists(file, error)) {
+        LOG_ERROR("error: %s path not found: '%s'", flag, path.c_str());
+        return false;
+    }
+    return true;
+}
+
+template <size_t N>
+static std::string join_option_names(const char* const (&values)[N]) {
+    std::string out;
+    for (const char* name : values) {
+        if (!out.empty()) {
+            out += ", ";
+        }
+        out += name;
+    }
+    return out;
+}
+
+void print_option_help_hint(const char* argv0) {
+    LOG_ERROR("run '%s --help' for the full option list", argv0 ? argv0 : "");
+}
+
 bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& options_list) {
-    bool invalid_arg = false;
+    enum class ArgFail { None,
+                         Missing,
+                         BadInt,
+                         BadFloat };
+    ArgFail arg_fail = ArgFail::None;
     std::string arg;
 
     auto match_and_apply = [&](auto& opts, auto&& apply_fn) -> bool {
@@ -258,13 +433,14 @@ bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& o
 
     bool valid = false;
     for (int i = 1; i < argc; i++) {
+        example_clear_last_error();
         arg            = argv[i];
         bool found_arg = false;
 
         for (auto& options : options_list) {
             if (match_and_apply(options.string_options, [&](auto& option) {
                     if (++i >= argc) {
-                        invalid_arg = true;
+                        arg_fail = ArgFail::Missing;
                         return;
                     }
                     if (option.concat && !option.target.get().empty()) {
@@ -281,28 +457,30 @@ bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& o
 
             if (match_and_apply(options.int_options, [&](auto& option) {
                     if (++i >= argc) {
-                        invalid_arg = true;
+                        arg_fail = ArgFail::Missing;
                         return;
                     }
-                    try {
-                        option.target.set(std::stoi(argv[i]));
-                    } catch (const std::invalid_argument&) {
-                        invalid_arg = true;
+                    int parsed = 0;
+                    if (!parse_cli_int(argv[i], parsed)) {
+                        arg_fail = ArgFail::BadInt;
+                        return;
                     }
+                    option.target.set(parsed);
                     found_arg = true;
                 }))
                 break;
 
             if (match_and_apply(options.float_options, [&](auto& option) {
                     if (++i >= argc) {
-                        invalid_arg = true;
+                        arg_fail = ArgFail::Missing;
                         return;
                     }
-                    try {
-                        option.target.set(std::stof(argv[i]));
-                    } catch (const std::invalid_argument&) {
-                        invalid_arg = true;
+                    float parsed = 0.f;
+                    if (!parse_cli_float(argv[i], parsed)) {
+                        arg_fail = ArgFail::BadFloat;
+                        return;
                     }
+                    option.target.set(parsed);
                     found_arg = true;
                 }))
                 break;
@@ -314,9 +492,17 @@ bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& o
                 break;
 
             if (match_and_apply(options.manual_options, [&](auto& option) {
+                    example_clear_last_error();
                     int ret = option.cb(argc, argv, i, valid);
                     if (ret < 0) {
-                        invalid_arg = true;
+                        arg_fail = ArgFail::Missing;
+                        if (!valid && example_last_error()[0] == '\0') {
+                            if (i + 1 >= argc) {
+                                LOG_ERROR("error: %s requires a value", arg.c_str());
+                            } else {
+                                LOG_ERROR("error: invalid value for %s: '%s'", arg.c_str(), argv[i + 1]);
+                            }
+                        }
                         return;
                     }
                     i += ret;
@@ -325,15 +511,24 @@ bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& o
                 break;
         }
 
-        if (invalid_arg) {
-            if (!valid) {
-                LOG_ERROR("error: invalid parameter for argument \"%s\": \"%s\"",
-                          arg.c_str(), (i >= argc) ? "" : argv[i]);
+        if (arg_fail != ArgFail::None) {
+            if (!valid && example_last_error()[0] == '\0') {
+                if (arg_fail == ArgFail::Missing) {
+                    LOG_ERROR("error: %s requires a value", arg.c_str());
+                } else if (arg_fail == ArgFail::BadInt) {
+                    LOG_ERROR("error: %s expects an integer, got '%s'", arg.c_str(), i < argc ? argv[i] : "");
+                } else {
+                    LOG_ERROR("error: %s expects a number, got '%s'", arg.c_str(), i < argc ? argv[i] : "");
+                }
             }
             return false;
         }
         if (!found_arg) {
             LOG_ERROR("error: unknown argument: %s", arg.c_str());
+            const std::string suggestion = suggest_long_options(arg, options_list);
+            if (!suggestion.empty()) {
+                LOG_ERROR("did you mean: %s", suggestion.c_str());
+            }
             return false;
         }
     }
@@ -852,19 +1047,53 @@ bool SDContextParams::validate(SDMode mode) {
                                        diffusion_model_path.length() != 0 ||
                                        vae_path.length() != 0;
         if (!has_convert_input) {
-            LOG_ERROR("error: convert mode needs at least one model input path\n");
+            LOG_ERROR("error: convert mode needs at least one of --model, --clip_l, --clip_g, --t5xxl, --diffusion-model, or --vae");
             return false;
         }
     } else if (mode != UPSCALE && mode != METADATA && model_path.length() == 0 && diffusion_model_path.length() == 0) {
-        LOG_ERROR("error: the following arguments are required: model_path/diffusion_model\n");
+        LOG_ERROR("error: --model or --diffusion-model is required");
         return false;
     }
 
     if (mode == UPSCALE) {
         if (esrgan_path.length() == 0) {
-            LOG_ERROR("error: upscale mode needs an upscaler model (--upscale-model)\n");
+            LOG_ERROR("error: upscale mode needs an upscaler model (--upscale-model)");
             return false;
         }
+    }
+
+    const std::pair<const std::string*, const char*> model_paths[] = {
+        {&model_path, "--model"},
+        {&clip_l_path, "--clip_l"},
+        {&clip_g_path, "--clip_g"},
+        {&clip_vision_path, "--clip_vision"},
+        {&t5xxl_path, "--t5xxl"},
+        {&llm_path, "--llm"},
+        {&llm_vision_path, "--llm_vision"},
+        {&diffusion_model_path, "--diffusion-model"},
+        {&high_noise_diffusion_model_path, "--high-noise-diffusion-model"},
+        {&uncond_diffusion_model_path, "--uncond-diffusion-model"},
+        {&embeddings_connectors_path, "--embeddings-connectors"},
+        {&vae_path, "--vae"},
+        {&audio_vae_path, "--audio-vae"},
+        {&audio_encoder_path, "--audio-encoder"},
+        {&taesd_path, "--taesd"},
+        {&esrgan_path, "--upscale-model"},
+        {&control_net_path, "--control-net"},
+        {&ip_adapter_path, "--ip-adapter"},
+        {&motion_module_path, "--motion-module"},
+        {&photo_maker_path, "--photo-maker"},
+        {&pulid_weights_path, "--pulid-weights"},
+    };
+    for (const auto& item : model_paths) {
+        if (!require_existing_path(*item.first, item.second, false)) {
+            return false;
+        }
+    }
+    if (!require_existing_path(embedding_dir, "--embd-dir", true) ||
+        (lora_model_dir != "." && !require_existing_path(lora_model_dir, "--lora-model-dir", true)) ||
+        !require_existing_path(hires_upscalers_dir, "--hires-upscalers-dir", true)) {
+        return false;
     }
 
     if (!to_context_opt()) {
@@ -1112,9 +1341,7 @@ ArgOptions SDGenerationParams::get_options() {
          &ip_adapter_image_path},
         {"",
          "--control-video",
-         "path to control video frames, It must be a directory path. The video frames inside should be stored as images in "
-         "lexicographical (character) order. For example, if the control video path is `frames`, the directory contain images "
-         "such as 00.png, 01.png, ... etc.",
+         "directory of control-video frames stored as images in lexicographical order (for example frames/00.png, frames/01.png)",
          0,
          &control_video_path},
         {"",
@@ -1158,7 +1385,7 @@ ArgOptions SDGenerationParams::get_options() {
          &extra_tiling_args},
         {"",
          "--ref-image-args",
-         "Key-value list to set up the way the reference images are processed (empty = auto-detect from model weigths)",
+         "key-value list describing how reference images are processed (empty = auto-detect from model weights)",
          (int)',',
          &ref_image_args},
         {"", "--image-preprocess",
@@ -1188,9 +1415,9 @@ ArgOptions SDGenerationParams::get_options() {
          "ignore last layers of CLIP network; 1 ignores none, 2 ignores one layer (default: -1). "
          "<= 0 represents unspecified, will be 1 for SD1.x, 2 for SD2.x",
          &clip_skip},
-        {"-b",
+        {         "-b",
          "--batch-count",
-         "batch count",
+         "number of images to generate (default: 1)",
          &batch_count},
         {"",
          "--qwen-image-layers",
@@ -1202,7 +1429,7 @@ ArgOptions SDGenerationParams::get_options() {
          &video_frames},
         {"",
          "--fps",
-         "fps (default: 24)",
+         "frames per second; omitted uses the library default of 16, which some video models override",
          &fps},
         {"",
          "--timestep-shift",
@@ -1380,9 +1607,17 @@ ArgOptions SDGenerationParams::get_options() {
 
     auto on_seed_arg = [&](int argc, const char** argv, int index) {
         if (++index >= argc) {
+            LOG_ERROR("error: --seed requires an integer");
             return -1;
         }
-        seed = std::stoll(argv[index]);
+        char* end             = nullptr;
+        errno                 = 0;
+        const long long value = std::strtoll(argv[index], &end, 10);
+        if (end == argv[index] || *end != '\0' || errno == ERANGE) {
+            LOG_ERROR("error: --seed expects an integer, got '%s'", argv[index]);
+            return -1;
+        }
+        seed = value;
         return 1;
     };
 
@@ -2554,9 +2789,12 @@ bool SDGenerationParams::resolve(const std::string& lora_model_dir, const std::s
         return false;
     }
 
-    if (strict && ((batch_count && (*batch_count < 1 || *batch_count > 8)) ||
-                   (sample_params.sample_steps && (*sample_params.sample_steps < 1 || *sample_params.sample_steps > 100)))) {
-        LOG_ERROR("server requests require batch_count in [1, 8] and sample_steps in [1, 100]");
+    if (strict && batch_count && (*batch_count < 1 || *batch_count > 8)) {
+        LOG_ERROR("error: batch_count/--batch-count must be in [1, 8] for server requests, got %d", *batch_count);
+        return false;
+    }
+    if (strict && sample_params.sample_steps && (*sample_params.sample_steps < 1 || *sample_params.sample_steps > 100)) {
+        LOG_ERROR("error: sample_steps/--steps must be in [1, 100] for server requests, got %d", *sample_params.sample_steps);
         return false;
     }
 
@@ -2608,6 +2846,98 @@ bool SDGenerationParams::validate(SDMode mode) {
     }
 
     if (upscale_repeats < 1) {
+        LOG_ERROR("error: --upscale-repeats must be at least 1, got %d", upscale_repeats);
+        return false;
+    }
+    if (sample_params.sample_steps && *sample_params.sample_steps < 1) {
+        LOG_ERROR("error: sample_steps/--steps must be at least 1, got %d", *sample_params.sample_steps);
+        return false;
+    }
+    if (high_noise_sample_params.sample_steps && *high_noise_sample_params.sample_steps < -1) {
+        LOG_ERROR("error: --high-noise-steps must be -1 (auto) or greater, got %d", *high_noise_sample_params.sample_steps);
+        return false;
+    }
+    if (width && *width < 1) {
+        LOG_ERROR("error: width/--width must be a positive integer, got %d", *width);
+        return false;
+    }
+    if (height && *height < 1) {
+        LOG_ERROR("error: height/--height must be a positive integer, got %d", *height);
+        return false;
+    }
+    if (batch_count && *batch_count < 1) {
+        LOG_ERROR("error: batch_count/--batch-count must be at least 1, got %d", *batch_count);
+        return false;
+    }
+    if ((mode == VID_GEN || mode == VID_UPSCALE) && fps && *fps < 1) {
+        LOG_ERROR("error: --fps must be at least 1, got %d", *fps);
+        return false;
+    }
+
+    const auto reject_method = [&](const std::optional<std::string>& method, const char* flag) {
+        if (!method || *method == "auto" || example_options::contains(example_options::sample_methods, *method)) {
+            return false;
+        }
+        LOG_ERROR("error: invalid %s '%s'; expected one of [%s], or auto",
+                  flag,
+                  method->c_str(),
+                  join_option_names(example_options::sample_methods).c_str());
+        return true;
+    };
+    const auto reject_scheduler = [&](const std::optional<std::string>& scheduler, const char* flag) {
+        if (!scheduler || *scheduler == "auto" || *scheduler == "normal" || example_options::contains(example_options::schedulers, *scheduler)) {
+            return false;
+        }
+        LOG_ERROR("error: invalid %s '%s'; expected one of [%s], auto, or normal (alias of discrete)",
+                  flag,
+                  scheduler->c_str(),
+                  join_option_names(example_options::schedulers).c_str());
+        return true;
+    };
+    if (reject_method(sample_params.sample_method, "sample_method/--sampling-method") ||
+        reject_method(high_noise_sample_params.sample_method, "high_noise sample_method/--high-noise-sampling-method") ||
+        reject_scheduler(sample_params.scheduler, "scheduler/--scheduler") ||
+        reject_scheduler(high_noise_sample_params.scheduler, "high_noise scheduler")) {
+        return false;
+    }
+
+    const std::pair<const std::string*, const char*> input_paths[] = {
+        {&init_image_path, "--init-img"},
+        {&end_image_path, "--end-img"},
+        {&mask_image_path, "--mask"},
+        {&control_image_path, "--control-image"},
+        {&ip_adapter_image_path, "--ip-adapter-image"},
+        {&pm_id_embed_path, "--pm-id-embed-path"},
+        {&pulid_id_embedding_path, "--pulid-id-embedding"},
+        {&ad_model_path, "--ad-model"},
+    };
+    for (const auto& item : input_paths) {
+        if (!require_existing_path(*item.first, item.second, false)) {
+            return false;
+        }
+    }
+    for (const auto& path : ref_image_paths) {
+        if (!require_existing_path(path, "--ref-image", false)) {
+            return false;
+        }
+    }
+    for (const auto& path : ref_audio_paths) {
+        if (!require_existing_path(path, "--ref-audio", false)) {
+            return false;
+        }
+    }
+    for (const auto& path : ref_video_audio_paths) {
+        if (!require_existing_path(path, "--ref-video-audio", false)) {
+            return false;
+        }
+    }
+    for (const auto& path : ref_video_paths) {
+        if (!require_existing_path(path, "--ref-video", true)) {
+            return false;
+        }
+    }
+    if (!require_existing_path(control_video_path, "--control-video", true) ||
+        !require_existing_path(pm_id_images_dir, "--pm-id-images-dir", true)) {
         return false;
     }
 

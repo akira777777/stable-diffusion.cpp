@@ -584,8 +584,8 @@ Currently supported request fields:
 | `seed` | `integer` | `-1` means random |
 | `batch_size` | `integer` | Number of images |
 | `clip_skip` | `integer` | Optional |
-| `sampler_name` | `string` | WebUI sampler name |
-| `scheduler` | `string` | Scheduler name |
+| `sampler_name` | `string` | Name from `GET /sdapi/v1/samplers`. Omit it or send `default` to keep the server default. Unknown names return 400. WebUI aliases such as `Euler a` are accepted |
+| `scheduler` | `string` | Name from `GET /sdapi/v1/schedulers`. Omit it or send `default` to keep the server default. `normal` is an alias of `discrete`. Unknown names return 400 |
 | `lora` | `array<object>` | Structured LoRA list |
 | `extra_images` | `array<string>` | Base64 or data URL images |
 | `enable_hr` | `boolean` | Enable highres fix for `txt2img` |
@@ -1475,7 +1475,7 @@ Example cancelled job:
 `POST /sdcpp/v1/img_gen` may return:
 
 - `202 Accepted` when the job is created
-- `400 Bad Request` for an empty body, unsupported model mode, invalid JSON, or invalid generation parameters
+- `400 Bad Request` for an empty body, unsupported model mode, invalid JSON, or invalid generation parameters. The `error` string names the field and the required fix
 - `429 Too Many Requests` when the job queue is full
 - `500 Internal Server Error` for unexpected server exceptions during submission
 
@@ -1909,7 +1909,7 @@ Example cancelled job:
 `POST /sdcpp/v1/vid_gen` may return:
 
 - `202 Accepted` when the job is created
-- `400 Bad Request` for an empty body, unsupported model mode, invalid JSON, invalid generation parameters, or an unsupported output format
+- `400 Bad Request` for an empty body, unsupported model mode, invalid JSON, invalid generation parameters, or an unsupported output format. The `error` string names the field and the required fix
 - `429 Too Many Requests` when the job queue is full
 - `500 Internal Server Error` for unexpected server exceptions during submission
 

@@ -44,7 +44,10 @@ layouts and platform-specific syntax.
 | `--sigmas VALUES_OR_PRESET` | Supply a custom schedule instead of generating one with the scheduler. |
 | `--hires-sigmas VALUES_OR_PRESET` | Supply a custom schedule for the highres fix second pass. |
 
-The names below are the exact, case-sensitive CLI values. Run `.\bin\Release\sd-cli.exe --help` on Windows or `./bin/sd-cli --help` on
+The names below are the exact, case-sensitive CLI values. An unknown
+`--sampling-method` or `--scheduler` is rejected before the model loads, and the
+error lists the accepted names. `auto` keeps the model default. `--scheduler
+normal` is an alias of `discrete`. Run `.\bin\Release\sd-cli.exe --help` on Windows or `./bin/sd-cli --help` on
 Linux/macOS to check the options supported by your installed build.
 
 For native server requests, use `sample_params.sample_method` and

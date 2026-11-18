@@ -25,6 +25,9 @@ const char* log_level_name(sd_log_level_t level);
 bool parse_log_level(const std::string& name, sd_log_level_t& level);
 void log_print(sd_log_level_t level, const char* log, sd_log_level_t min_level, bool color);
 void example_log_printf(sd_log_level_t level, const char* file, int line, const char* format, ...);
+void example_clear_last_error();
+const char* example_last_error();
+std::string example_failure_detail(const char* fallback);
 
 #define LOG_DEBUG(format, ...) example_log_printf(SD_LOG_DEBUG, __FILE__, __LINE__, format, ##__VA_ARGS__)
 #define LOG_VERBOSE(format, ...) example_log_printf(SD_LOG_VERBOSE, __FILE__, __LINE__, format, ##__VA_ARGS__)

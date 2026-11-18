@@ -689,7 +689,7 @@ bool StableDiffusionGGML::init_model_loader(ModelLoader& model_loader, ModelConf
     if (strlen(SAFE_STR(sd_ctx_params->model_path)) > 0) {
         LOG_INFO("loading model from '%s'", sd_ctx_params->model_path);
         if (!load_model("model", sd_ctx_params->model_path)) {
-            LOG_ERROR("init model loader from file failed: '%s'", sd_ctx_params->model_path);
+            LOG_ERROR("could not read --model/model_path '%s'; expected an existing .safetensors, .gguf, .ckpt, .pt, .pth file or a diffusers directory", sd_ctx_params->model_path);
         }
     }
 
@@ -976,7 +976,11 @@ bool StableDiffusionGGML::init(const sd::ContextConfig* sd_ctx_params) {
 
     version = model_loader.get_sd_version();
     if (version == VERSION_COUNT) {
-        LOG_ERROR("get sd version from file failed: '%s'", SAFE_STR(sd_ctx_params->model_path));
+        const char* model_path     = SAFE_STR(sd_ctx_params->model_path);
+        const char* diffusion_path = SAFE_STR(sd_ctx_params->diffusion_model_path);
+        LOG_ERROR("could not identify a supported model. Check --model/model_path '%s' and --diffusion-model/diffusion_model_path '%s'. Each set path must exist and be a .safetensors, .gguf, .ckpt, .pt, .pth file, or a diffusers directory",
+                  model_path[0] ? model_path : "(not set)",
+                  diffusion_path[0] ? diffusion_path : "(not set)");
         return false;
     } else {
         LOG_INFO("Version: %s ", sd_version_name(version));

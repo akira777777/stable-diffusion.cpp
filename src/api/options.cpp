@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
@@ -578,16 +580,40 @@ static sd_status_t check_key(sd_opt_t* params, const char* key, ParamType type, 
 static sd_status_t store_value(sd_opt_t* params, const ParamSpec& spec, ParamValue value) {
     if (spec.type == ParamType::Int) {
         const auto number = std::get<int64_t>(value);
+        if (number < spec.int_min && spec.int_min != std::numeric_limits<int64_t>::min())
+            return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, ("must be >= " + std::to_string(spec.int_min)).c_str());
+        if (number > spec.int_max && spec.int_max != std::numeric_limits<int64_t>::max())
+            return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, ("must be <= " + std::to_string(spec.int_max)).c_str());
         if (number < spec.int_min || number > spec.int_max)
             return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, "integer outside supported range");
     }
     if (spec.type == ParamType::Float) {
         const auto number = std::get<double>(value);
-        if (!std::isfinite(number) || number < spec.float_min || number > spec.float_max)
-            return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, "float must be finite and within supported range");
+        if (!std::isfinite(number))
+            return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, "must be finite");
+        const double float_limit = std::numeric_limits<float>::max();
+        if (number < spec.float_min) {
+            if (spec.float_min <= -float_limit)
+                return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, "float must be finite and within supported range");
+            char reason[64];
+            snprintf(reason, sizeof(reason), "must be >= %.6g", spec.float_min);
+            return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, reason);
+        }
+        if (number > spec.float_max) {
+            if (spec.float_max >= float_limit)
+                return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, "float must be finite and within supported range");
+            char reason[64];
+            snprintf(reason, sizeof(reason), "must be <= %.6g", spec.float_max);
+            return sd::api::error(SD_STATUS_OUT_OF_RANGE, spec.key, reason);
+        }
     }
-    if (spec.valid && !spec.valid(value))
+    if (spec.valid && !spec.valid(value)) {
+        if (std::holds_alternative<std::string>(value) && strcmp(spec.invalid_reason, "invalid parameter value") == 0) {
+            const std::string reason = "unknown value '" + std::get<std::string>(value) + "'";
+            return sd::api::error(SD_STATUS_INVALID_ARGUMENT, spec.key, reason.c_str());
+        }
         return sd::api::error(SD_STATUS_INVALID_ARGUMENT, spec.key, spec.invalid_reason);
+    }
     params->values.insert_or_assign(spec.key, std::move(value));
     return SD_STATUS_OK;
 }

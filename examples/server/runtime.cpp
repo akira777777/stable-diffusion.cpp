@@ -408,27 +408,27 @@ ArgOptions SDSvrParams::get_options() {
 
 bool SDSvrParams::validate() {
     if (listen_ip.empty()) {
-        LOG_ERROR("error: the following arguments are required: listen_ip");
+        LOG_ERROR("error: --listen-ip requires a non-empty address");
         return false;
     }
 
     if (listen_port < 0 || listen_port > 65535) {
-        LOG_ERROR("error: listen_port should be in the range [0, 65535]");
+        LOG_ERROR("error: --listen-port must be in [0, 65535], got %d", listen_port);
         return false;
     }
 
     if (max_pending_jobs <= 0) {
-        LOG_ERROR("error: max_pending_jobs must be greater than 0");
+        LOG_ERROR("error: --max-pending-jobs must be greater than 0, got %d", max_pending_jobs);
         return false;
     }
 
     if (completed_ttl_seconds < 0) {
-        LOG_ERROR("error: completed_ttl_seconds must be non-negative");
+        LOG_ERROR("error: --completed-ttl-seconds must be non-negative, got %d", completed_ttl_seconds);
         return false;
     }
 
     if (!serve_html_path.empty() && !fs::exists(fs::u8path(serve_html_path))) {
-        LOG_ERROR("error: serve_html_path file does not exist: %s", serve_html_path.c_str());
+        LOG_ERROR("error: --serve-html-path file does not exist: '%s'", serve_html_path.c_str());
         return false;
     }
     return true;

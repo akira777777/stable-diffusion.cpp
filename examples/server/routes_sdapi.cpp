@@ -254,7 +254,7 @@ static bool parse_sdapi_adetailer(const json& body,
                         sampler.resize(sampler.size() - suffix.size());
                     const auto method = get_sdapi_sample_method(sampler);
                     if (method.empty())
-                        throw std::invalid_argument("unsupported ADetailer sampler");
+                        throw std::invalid_argument("unsupported ADetailer sampler '" + sampler + "'");
                     append("sample_method", method);
                     if (legacy_karras && text("ad_scheduler", "Use same scheduler") == "Use same scheduler")
                         append("scheduler", "karras");
@@ -265,7 +265,7 @@ static bool parse_sdapi_adetailer(const json& body,
                 } else if (scheduler != "Use same scheduler") {
                     const auto value = scheduler;
                     if (!example_options::contains(example_options::schedulers, value) && value != "normal")
-                        throw std::invalid_argument("unsupported ADetailer scheduler");
+                        throw std::invalid_argument("unsupported ADetailer scheduler '" + value + "'");
                     append("scheduler", value == "normal" ? "discrete" : value);
                 }
             }
@@ -327,19 +327,29 @@ static bool build_sdapi_img_gen_request(const json& j,
     }
 
     std::string sd_cpp_extra_args_str = extract_and_remove_sd_cpp_extra_args(request.gen_params.prompt);
-    if (!sd_cpp_extra_args_str.empty() && !request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
-        error_message = "invalid sd_cpp_extra_args";
-        return false;
+    if (!sd_cpp_extra_args_str.empty()) {
+        example_clear_last_error();
+        if (!request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
+            error_message = example_failure_detail("invalid sd_cpp_extra_args");
+            return false;
+        }
     }
 
-    const auto sample_method = get_sdapi_sample_method(sampler_name);
-    if (!sample_method.empty()) {
+    if (!sampler_name.empty() && sampler_name != "default") {
+        const auto sample_method = get_sdapi_sample_method(sampler_name);
+        if (sample_method.empty()) {
+            error_message = "unsupported sampler_name '" + sampler_name + "'; see GET /sdapi/v1/samplers";
+            return false;
+        }
         request.gen_params.sample_params.sample_method = sample_method;
     }
 
-    const auto scheduler = scheduler_name;
-    if (example_options::contains(example_options::schedulers, scheduler) || scheduler == "normal") {
-        request.gen_params.sample_params.scheduler = scheduler;
+    if (!scheduler_name.empty() && scheduler_name != "default") {
+        if (!example_options::contains(example_options::schedulers, scheduler_name) && scheduler_name != "normal") {
+            error_message = "unsupported scheduler '" + scheduler_name + "'; see GET /sdapi/v1/schedulers";
+            return false;
+        }
+        request.gen_params.sample_params.scheduler = scheduler_name;
     }
 
     if (j.contains("lora") && j["lora"].is_array()) {
@@ -444,8 +454,9 @@ static bool build_sdapi_img_gen_request(const json& j,
     }
 
     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+    example_clear_last_error();
     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
-        error_message = "invalid params";
+        error_message = example_failure_detail("invalid params");
         return false;
     }
 

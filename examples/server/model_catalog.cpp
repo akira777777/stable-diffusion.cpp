@@ -765,6 +765,9 @@ void prepare_model_load(ServerRuntime& runtime, json& body, SDContextParams& con
             throw std::runtime_error("select at least one model from: " + group.dump());
         }
     }
-    if (!context.resolve_and_validate(IMG_GEN))
-        throw std::runtime_error("invalid model context parameters");
+    example_clear_last_error();
+    if (!context.resolve_and_validate(IMG_GEN)) {
+        const char* detail = example_last_error();
+        throw std::runtime_error(detail && detail[0] ? detail : "invalid model context parameters");
+    }
 }

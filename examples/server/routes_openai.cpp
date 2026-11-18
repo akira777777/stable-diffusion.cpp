@@ -64,14 +64,18 @@ static bool build_openai_generation_request(const httplib::Request& req,
     request.gen_params.batch_count = n;
 
     std::string sd_cpp_extra_args_str = extract_and_remove_sd_cpp_extra_args(request.gen_params.prompt);
-    if (!sd_cpp_extra_args_str.empty() && !request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
-        error_message = "invalid sd_cpp_extra_args";
-        return false;
+    if (!sd_cpp_extra_args_str.empty()) {
+        example_clear_last_error();
+        if (!request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
+            error_message = example_failure_detail("invalid sd_cpp_extra_args");
+            return false;
+        }
     }
 
     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+    example_clear_last_error();
     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
-        error_message = "invalid params";
+        error_message = example_failure_detail("invalid params");
         return false;
     }
     return validate_server_img_gen_request(runtime, request, error_message);
@@ -196,9 +200,12 @@ static bool build_openai_edit_request(const httplib::Request& req,
         });
     }
 
-    if (!sd_cpp_extra_args_str.empty() && !request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
-        error_message = "invalid sd_cpp_extra_args";
-        return false;
+    if (!sd_cpp_extra_args_str.empty()) {
+        example_clear_last_error();
+        if (!request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
+            error_message = example_failure_detail("invalid sd_cpp_extra_args");
+            return false;
+        }
     }
     if (images_bytes.empty() && request.gen_params.prompt_images.empty()) {
         error_message = "at least one image[] or prompt_images in sd_cpp_extra_args required";
@@ -206,8 +213,9 @@ static bool build_openai_edit_request(const httplib::Request& req,
     }
 
     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+    example_clear_last_error();
     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
-        error_message = "invalid params";
+        error_message = example_failure_detail("invalid params");
         return false;
     }
 

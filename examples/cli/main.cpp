@@ -222,14 +222,39 @@ struct SDCliParams {
             LOG_ERROR("vid_upscale requires a positive --upscale-factor");
             return false;
         }
+        if (!example_options::contains(example_options::preview_modes, preview_method)) {
+            LOG_ERROR("error: invalid --preview '%s'; expected one of [none, proj, tae, vae]",
+                      preview_method.c_str());
+            return false;
+        }
+        if (output_begin_idx < -1) {
+            LOG_ERROR("error: --output-begin-idx must be non-negative, got %d", output_begin_idx);
+            return false;
+        }
+        if (compression_quality < 0 || compression_quality > 100) {
+            LOG_ERROR("error: --compression-quality must be in [0, 100], got %d", compression_quality);
+            return false;
+        }
+        if (!input_frames.empty()) {
+            std::error_code error;
+            if (!fs::is_directory(fs::u8path(input_frames), error)) {
+                LOG_ERROR("error: --input-frames directory not found: '%s'", input_frames.c_str());
+                return false;
+            }
+        }
         if (mode != METADATA) {
             if (output_path.length() == 0) {
-                LOG_ERROR("error: the following arguments are required: output_path");
+                LOG_ERROR("error: --output requires a non-empty path");
                 return false;
             }
         } else {
             if (image_path.empty()) {
                 LOG_ERROR("error: metadata mode needs an image or video path (--image)");
+                return false;
+            }
+            std::error_code image_error;
+            if (!fs::exists(fs::u8path(image_path), image_error)) {
+                LOG_ERROR("error: --image path not found: '%s'", image_path.c_str());
                 return false;
             }
             if (metadata_format != "text" && metadata_format != "json") {
@@ -290,8 +315,12 @@ void parse_args(int argc, const char** argv, SDCliParams& cli_params, SDContextP
     std::vector<ArgOptions> options_vec = {cli_params.get_options(), ctx_params.get_options(), gen_params.get_options()};
 
     if (!parse_options(argc, argv, options_vec)) {
-        print_usage(argc, argv, options_vec);
-        exit(cli_params.normal_exit ? 0 : 1);
+        if (cli_params.normal_exit) {
+            print_usage(argc, argv, options_vec);
+            exit(0);
+        }
+        print_option_help_hint(argv[0]);
+        exit(1);
     }
 
     log_level = cli_params.log_level;
@@ -310,7 +339,7 @@ void parse_args(int argc, const char** argv, SDCliParams& cli_params, SDContextP
     }
 
     if (!valid) {
-        print_usage(argc, argv, options_vec);
+        print_option_help_hint(argv[0]);
         exit(1);
     }
 }

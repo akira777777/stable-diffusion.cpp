@@ -20,7 +20,7 @@ names, defaults, and custom sigma schedules.
 Omitted inference options use the [library defaults](../../docs/guides/c_api.md#keys).
 In particular, an omitted seed requests a random seed; use `--seed 42` for a
 repeatable run. Video generation defaults to 6 requested frames before model
-alignment. SLG layers remain unset unless `--skip-layers` is supplied, and the
+alignment, and omitted `--fps` uses 16 unless the model overrides it. SLG layers remain unset unless `--skip-layers` is supplied, and the
 conditioning cache uses the library default. Zero and false are explicit inputs;
 invalid values are reported rather than treated as omitted.
 
@@ -28,6 +28,14 @@ Logging defaults to `info`. Use `--log-level <level>` to select `debug`, `verbos
 `info`, `warn`, or `error` (from most to least detailed). Each level includes
 messages at that level and all less detailed levels. `-v` and `--verbose` are
 equivalent to `--log-level verbose`. If repeated, the last logging option wins.
+
+Argument errors name the flag and the value that was rejected. A missing model,
+a path that does not exist, an unknown sampler or scheduler, or a value of the
+wrong type stops before the model is loaded. `--help` prints the full option
+list; other errors end with a one-line reminder to run it, so the message stays
+on screen. `--sampling-method` accepts the names in
+[Sampling methods and schedulers](../../docs/guides/sampling.md) or `auto`.
+`--scheduler normal` is an alias of `discrete`.
 
 `--flash-attn on|off|auto` defaults to `auto`, selecting flash attention for each
 compute backend during context creation. See [Backend selection](../../docs/guides/backend.md#flash-attention---flash-attn-onoffauto)

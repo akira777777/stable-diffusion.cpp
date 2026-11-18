@@ -41,8 +41,12 @@ static void parse_args(int argc,
     };
 
     if (!parse_options(argc, argv, options_vec)) {
-        print_usage(argv[0], options_vec);
-        exit(svr_params.normal_exit ? 0 : 1);
+        if (svr_params.normal_exit) {
+            print_usage(argv[0], options_vec);
+            exit(0);
+        }
+        print_option_help_hint(argv[0]);
+        exit(1);
     }
 
     log_level = svr_params.log_level;
@@ -57,7 +61,7 @@ static void parse_args(int argc,
         !default_gen_params.resolve_and_validate(IMG_GEN,
                                                  ctx_params.lora_model_dir,
                                                  ctx_params.hires_upscalers_dir)) {
-        print_usage(argv[0], options_vec);
+        print_option_help_hint(argv[0]);
         exit(1);
     }
 }

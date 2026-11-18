@@ -5,6 +5,23 @@
 sd_log_level_t log_level = SD_LOG_INFO;
 bool log_color           = false;
 
+static thread_local std::string last_example_error;
+
+void example_clear_last_error() {
+    last_example_error.clear();
+}
+
+const char* example_last_error() {
+    return last_example_error.c_str();
+}
+
+std::string example_failure_detail(const char* fallback) {
+    if (!last_example_error.empty()) {
+        return last_example_error;
+    }
+    return fallback ? fallback : std::string();
+}
+
 std::string sd_basename(const std::string& path) {
     size_t pos = path.find_last_of('/');
     if (pos != std::string::npos) {
@@ -138,6 +155,9 @@ void example_log_printf(sd_log_level_t level, const char* file, int line, const 
     std::string message = log_buffer;
     while (!message.empty() && (message.back() == '\n' || message.back() == '\r')) {
         message.pop_back();
+    }
+    if (level == SD_LOG_ERROR) {
+        last_example_error = message;
     }
     message += " --- " + sd_basename(file) + ":" + std::to_string(line) + '\n';
 

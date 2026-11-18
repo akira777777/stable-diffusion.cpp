@@ -233,9 +233,9 @@ bool ModelLoader::parse_file(const std::string& file_path, const std::string& pr
         return true;
     } else {
         if (file_exists(file_path)) {
-            LOG_WARN("unknown format %s", file_path.c_str());
+            LOG_ERROR("unrecognized model file '%s'; expected .safetensors, .gguf, .ckpt, .pt, .pth, a safetensors index, or a diffusers directory", file_path.c_str());
         } else {
-            LOG_WARN("file %s not found", file_path.c_str());
+            LOG_ERROR("model file not found: '%s'", file_path.c_str());
         }
         return false;
     }

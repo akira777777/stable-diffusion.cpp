@@ -416,10 +416,11 @@ static bool parse_img_gen_request(const json& body,
     request.gen_params = *runtime.default_gen_params;
 
     refresh_lora_cache(runtime);
+    example_clear_last_error();
     if (!request.gen_params.from_json_str(body.dump(), [&](const std::string& path) {
             return get_lora_full_path(runtime, path);
         })) {
-        error_message = "invalid generation parameters";
+        error_message = example_failure_detail("invalid generation parameters");
         return false;
     }
 
@@ -431,8 +432,9 @@ static bool parse_img_gen_request(const json& body,
     request.preview_mode     = body.value("preview", std::string("none"));
     request.preview_interval = body.value("preview_interval", 1);
     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+    example_clear_last_error();
     if (!request.gen_params.resolve_and_validate(IMG_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
-        error_message = "invalid generation parameters";
+        error_message = example_failure_detail("invalid generation parameters");
         return false;
     }
     return validate_server_img_gen_request(runtime, request, error_message);
@@ -445,10 +447,11 @@ static bool parse_vid_gen_request(const json& body,
     request.gen_params = *runtime.default_gen_params;
 
     refresh_lora_cache(runtime);
+    example_clear_last_error();
     if (!request.gen_params.from_json_str(body.dump(), [&](const std::string& path) {
             return get_lora_full_path(runtime, path);
         })) {
-        error_message = "invalid generation parameters";
+        error_message = example_failure_detail("invalid generation parameters");
         return false;
     }
 
@@ -475,8 +478,9 @@ static bool parse_vid_gen_request(const json& body,
     request.preview_mode     = body.value("preview", std::string("none"));
     request.preview_interval = body.value("preview_interval", 1);
     // Intentionally disable prompt-embedded LoRA tag parsing for server APIs.
+    example_clear_last_error();
     if (!request.gen_params.resolve_and_validate(VID_GEN, "", runtime.ctx_params->hires_upscalers_dir, true)) {
-        error_message = "invalid generation parameters";
+        error_message = example_failure_detail("invalid generation parameters");
         return false;
     }
     return true;
