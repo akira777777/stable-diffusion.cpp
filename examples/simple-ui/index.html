@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local image generation</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3efe6;
+      --panel: #fffdf8;
+      --ink: #1d1a16;
+      --muted: #5e584e;
+      --line: #e3daca;
+      --accent: #0c6b52;
+      --accent-ink: #f7fffb;
+      --danger: #8d2b2b;
+      --shadow: 0 1px 2px rgba(40, 32, 20, 0.06);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.45 "Segoe UI", sans-serif;
+    }
+
+    header, main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+
+    header { padding: 28px 0 8px; }
+
+    h1 { margin: 0 0 4px; font-size: 1.6rem; font-weight: 650; }
+
+    h2 { margin: 0 0 10px; font-size: 1rem; }
+
+    p { margin: 0; }
+
+    .lede { color: var(--muted); }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+      gap: 16px;
+      padding: 16px 0 32px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    form { display: grid; gap: 14px; }
+
+    fieldset {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    label, .slot-label {
+      display: grid;
+      gap: 4px;
+      font-size: 0.92rem;
+    }
+
+    .slot-label span, label span { color: var(--muted); }
+
+    input, select, textarea, button {
+      font: inherit;
+      color: inherit;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    textarea { min-height: 88px; resize: vertical; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    button {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 8px 12px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .hint, .status { color: var(--muted); font-size: 0.92rem; }
+
+    .status.error { color: var(--danger); }
+
+    .stage {
+      min-height: 420px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .frame {
+      min-height: 320px;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background:
+        linear-gradient(45deg, #f7f3ea 25%, transparent 25%),
+        linear-gradient(-45deg, #f7f3ea 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #f7f3ea 75%),
+        linear-gradient(-45deg, transparent 75%, #f7f3ea 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+      background-color: #fff;
+    }
+
+    .frame img { width: 100%; height: 100%; max-height: 70vh; object-fit: contain; }
+
+    .frame p { padding: 16px; text-align: center; }
+
+    .downloads { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .downloads a { color: var(--accent); }
+
+    @media (max-width: 800px) {
+      main { grid-template-columns: 1fr; }
+      .stage { min-height: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Local image generation</h1>
+    <p class="lede">Pick a model already on this machine, write a prompt, and generate an image.</p>
+  </header>
+  <main>
+    <section class="panel">
+      <form id="composer">
+        <fieldset>
+          <h2>Model</h2>
+          <label>
+            <span>Recipe</span>
+            <select id="recipe"></select>
+          </label>
+          <p id="recipe-note" class="hint"></p>
+          <div id="slots"></div>
+          <div class="actions">
+            <button type="button" id="load">Load model</button>
+            <button type="button" id="refresh" class="secondary">Refresh files</button>
+          </div>
+          <p id="model-status" class="status" aria-live="polite">No model loaded</p>
+          <p id="catalog-note" class="hint"></p>
+        </fieldset>
+        <fieldset>
+          <h2>Prompt</h2>
+          <label>
+            <span>Prompt</span>
+            <textarea id="prompt" placeholder="a lovely cat"></textarea>
+          </label>
+          <label>
+            <span>Negative prompt</span>
+            <textarea id="negative-prompt"></textarea>
+          </label>
+          <div class="grid">
+            <label><span>Width</span><input id="width" type="number" min="64" max="4096" step="8" value="512"></label>
+            <label><span>Height</span><input id="height" type="number" min="64" max="4096" step="8" value="512"></label>
+            <label><span>Steps</span><input id="steps" type="number" min="1" max="1000" step="1" value="20"></label>
+            <label><span>CFG scale</span><input id="cfg" type="number" min="0" max="1000" step="0.1" value="7"></label>
+            <label><span>Seed</span><input id="seed" type="number" step="1" value="-1"></label>
+            <label>
+              <span>Sampler</span>
+              <select id="sampler"><option value="">Server default</option></select>
+            </label>
+            <label>
+              <span>Scheduler</span>
+              <select id="scheduler"><option value="">Server default</option></select>
+            </label>
+          </div>
+          <div class="actions">
+            <button type="submit" id="generate" disabled>Generate</button>
+            <button type="button" id="cancel" class="secondary" disabled>Cancel</button>
+          </div>
+        </fieldset>
+      </form>
+    </section>
+    <section class="panel stage">
+      <h2>Image</h2>
+      <p id="gen-status" class="status" aria-live="polite">Generated images show up here.</p>
+      <div class="frame" id="frame">
+        <p class="hint" id="placeholder">The result replaces this space.</p>
+        <img id="image" alt="" hidden>
+      </div>
+      <div class="downloads" id="downloads"></div>
+    </section>
+  </main>
+  <script>
+    const recipeEl = document.querySelector("#recipe");
+    const recipeNote = document.querySelector("#recipe-note");
+    const slotsEl = document.querySelector("#slots");
+    const loadButton = document.querySelector("#load");
+    const refreshButton = document.querySelector("#refresh");
+    const modelStatusEl = document.querySelector("#model-status");
+    const catalogNote = document.querySelector("#catalog-note");
+    const form = document.querySelector("#composer");
+    const generateButton = document.querySelector("#generate");
+    const cancelButton = document.querySelector("#cancel");
+    const genStatus = document.querySelector("#gen-status");
+    const frame = document.querySelector("#frame");
+    const placeholder = document.querySelector("#placeholder");
+    const imageEl = document.querySelector("#image");
+    const downloads = document.querySelector("#downloads");
+
+    const fields = {
+      prompt: document.querySelector("#prompt"),
+      negative: document.querySelector("#negative-prompt"),
+      width: document.querySelector("#width"),
+      height: document.querySelector("#height"),
+      steps: document.querySelector("#steps"),
+      cfg: document.querySelector("#cfg"),
+      seed: document.querySelector("#seed"),
+      sampler: document.querySelector("#sampler"),
+      scheduler: document.querySelector("#scheduler"),
+    };
+
+    let recipes = [];
+    let files = [];
+    let capabilities = null;
+    let modelStatus = { state: "empty" };
+    let activeJobId = "";
+    let loadToken = 0;
+    let loadTimer = 0;
+
+    function messageFrom(data) {
+      if (!data) return "";
+      if (typeof data.error === "string") return data.error;
+      if (data.error && typeof data.error.message === "string") return data.error.message;
+      if (typeof data.message === "string") return data.message;
+      return "";
+    }
+
+    async function api(path, options = {}) {
+      const init = { method: options.method || "GET" };
+      if (options.body !== undefined) {
+        init.headers = { "Content-Type": "application/json" };
+        init.body = JSON.stringify(options.body);
+      }
+      let response;
+      try {
+        response = await fetch(path, init);
+      } catch (error) {
+        throw new Error("Cannot reach sd-server. Start it and open this page from http://127.0.0.1:1234/.");
+      }
+      const text = await response.text();
+      let data = null;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch (error) {
+          data = { error: text };
+        }
+      }
+      if (!response.ok) {
+        const failure = new Error(messageFrom(data) || response.statusText || "Request failed");
+        failure.status = response.status;
+        failure.data = data;
+        throw failure;
+      }
+      return data;
+    }
+
+    function imageRecipes(list) {
+      return list.filter((recipe) => {
+        const defaults = recipe.defaults || {};
+        return !Object.prototype.hasOwnProperty.call(defaults, "video_frames");
+      }).sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+    }
+
+    function currentRecipe() {
+      return recipes.find((recipe) => recipe.id === recipeEl.value) || null;
+    }
+
+    function slotCategories(slot) {
+      if (Array.isArray(slot.categories) && slot.categories.length) return slot.categories;
+      return slot.category ? [slot.category] : [];
+    }
+
+    function filesForSlot(slot) {
+      const categories = new Set(slotCategories(slot));
+      return files
+        .filter((file) => categories.has(file.category))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    function slotLabel(recipe, id) {
+      const slot = (recipe.slots || []).find((item) => item.id === id);
+      return slot && slot.label ? slot.label : id;
+    }
+
+    function selectedModels() {
+      const models = {};
+      for (const select of slotsEl.querySelectorAll("select[data-slot]")) {
+        if (select.value) models[select.dataset.slot] = select.value;
+      }
+      return models;
+    }
+
+    function selectionReady(recipe) {
+      if (!recipe) return false;
+      const models = selectedModels();
+      for (const slot of recipe.slots || []) {
+        if (slot.required && !models[slot.id]) return false;
+      }
+      for (const group of recipe.required_any || []) {
+        if (!group.some((id) => models[id])) return false;
+      }
+      return true;
+    }
+
+    function setMessage(element, text, isError) {
+      element.textContent = text;
+      element.classList.toggle("error", Boolean(isError));
+    }
+
+    function describeStatus(status) {
+      const state = status.state || "empty";
+      const elapsed = typeof status.load_elapsed_seconds === "number"
+        ? ` (${status.load_elapsed_seconds.toFixed(1)}s)`
+        : "";
+      if (state === "loading") return { text: `Loading model${elapsed}`, error: false };
+      if (state === "ready") {
+        const name = status.recipe || "command line";
+        return { text: `Model ready: ${name}${elapsed}`, error: false };
+      }
+      if (state === "error") {
+        const message = typeof status.error === "string" ? status.error : "Model load failed";
+        return { text: message, error: true };
+      }
+      return { text: "No model loaded", error: false };
+    }
+
+    function updateButtons() {
+      const recipe = currentRecipe();
+      const loading = modelStatus.state === "loading";
+      const busy = Boolean(activeJobId);
+      loadButton.disabled = loading || busy || !selectionReady(recipe);
+      refreshButton.disabled = loading;
+      generateButton.disabled = modelStatus.state !== "ready" || busy;
+      cancelButton.disabled = !busy;
+    }
+
+    function fillSelect(select, names, keepBlank) {
+      const current = select.value;
+      select.replaceChildren();
+      if (keepBlank) {
+        const blank = document.createElement("option");
+        blank.value = "";
+        blank.textContent = "Server default";
+        select.appendChild(blank);
+      }
+      for (const name of names) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+      }
+      if ([...select.options].some((option) => option.value === current)) select.value = current;
+    }
+
+    function ensureOption(select, value) {
+      if (!value) {
+        select.value = "";
+        return;
+      }
+      if (![...select.options].some((option) => option.value === value)) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      }
+      select.value = value;
+    }
+
+    function applyCapabilities() {
+      const samplers = capabilities && Array.isArray(capabilities.samplers) ? capabilities.samplers : [];
+      const schedulers = capabilities && Array.isArray(capabilities.schedulers) ? capabilities.schedulers : [];
+      if (samplers.length) fillSelect(fields.sampler, samplers, true);
+      if (schedulers.length) fillSelect(fields.scheduler, schedulers, true);
+    }
+
+    function previewMode() {
+      const modes = capabilities && Array.isArray(capabilities.preview_modes) ? capabilities.preview_modes : [];
+      if (modes.includes("tae")) return "tae";
+      if (modes.includes("proj")) return "proj";
+      return "none";
+    }
+
+    function applyDefaults(recipe) {
+      const defaults = recipe.defaults || {};
+      fields.width.value = Number.isFinite(defaults.width) ? defaults.width : 512;
+      fields.height.value = Number.isFinite(defaults.height) ? defaults.height : 512;
+      fields.steps.value = Number.isFinite(defaults.steps) ? defaults.steps : 20;
+      fields.cfg.value = Number.isFinite(defaults.cfg_scale) ? defaults.cfg_scale : 7;
+      ensureOption(fields.sampler, typeof defaults.sampling_method === "string" ? defaults.sampling_method : "");
+      ensureOption(fields.scheduler, typeof defaults.scheduler === "string" ? defaults.scheduler : "");
+    }
+
+    function renderRecipes(preferredId) {
+      const previous = preferredId || recipeEl.value;
+      recipeEl.replaceChildren();
+      for (const recipe of recipes) {
+        const option = document.createElement("option");
+        option.value = recipe.id;
+        option.textContent = recipe.name || recipe.id;
+        recipeEl.appendChild(option);
+      }
+      if (recipes.some((recipe) => recipe.id === previous)) recipeEl.value = previous;
+      const recipe = currentRecipe();
+      recipeNote.textContent = recipe && recipe.description ? recipe.description : "";
+    }
+
+    function renderSlots(preferred) {
+      const recipe = currentRecipe();
+      slotsEl.replaceChildren();
+      if (!recipe) return;
+      for (const slot of recipe.slots || []) {
+        const label = document.createElement("label");
+        label.className = "slot-label";
+        const caption = document.createElement("span");
+        caption.textContent = slot.required ? `${slot.label || slot.id} *` : (slot.label || slot.id);
+        const select = document.createElement("select");
+        select.dataset.slot = slot.id;
+        const matches = filesForSlot(slot);
+        const blank = document.createElement("option");
+        blank.value = "";
+        blank.textContent = matches.length ? "Not selected" : "No matching files";
+        select.appendChild(blank);
+        for (const file of matches) {
+          const option = document.createElement("option");
+          option.value = file.id;
+          option.textContent = file.name;
+          select.appendChild(option);
+        }
+        const preferredId = preferred && preferred[slot.id] ? preferred[slot.id] : "";
+        if (preferredId && matches.some((file) => file.id === preferredId)) select.value = preferredId;
+        else if (matches.length === 1) select.value = matches[0].id;
+        select.addEventListener("change", updateButtons);
+        label.append(caption, select);
+        slotsEl.appendChild(label);
+      }
+      const groups = recipe.required_any || [];
+      if (groups.length) {
+        const note = document.createElement("p");
+        note.className = "hint";
+        note.textContent = groups.map((group) => {
+          return `Choose at least one of ${group.map((id) => slotLabel(recipe, id)).join(" or ")}.`;
+        }).join(" ");
+        slotsEl.appendChild(note);
+      }
+      updateButtons();
+    }
+
+    function showCatalogNotes(errors) {
+      const seen = new Set();
+      const lines = [];
+      for (const item of errors || []) {
+        const line = (item && (item.message || item.file)) || "";
+        if (!line || seen.has(line)) continue;
+        seen.add(line);
+        lines.push(line);
+      }
+      catalogNote.textContent = lines.join(" ");
+    }
+
+    function applyStatus(status) {
+      modelStatus = status || { state: "empty" };
+      const described = describeStatus(modelStatus);
+      setMessage(modelStatusEl, described.text, described.error);
+      updateButtons();
+    }
+
+    async function refreshStatus() {
+      applyStatus(await api("/sdcpp/v1/models/status"));
+    }
+
+    async function loadCatalog(keepSelection) {
+      const [recipeBody, fileBody, status] = await Promise.all([
+        api("/sdcpp/v1/recipes"),
+        api("/sdcpp/v1/model-files"),
+        api("/sdcpp/v1/models/status"),
+      ]);
+      recipes = imageRecipes(recipeBody.recipes || []);
+      files = fileBody.files || [];
+      const errors = [...(recipeBody.errors || []), ...(fileBody.errors || [])];
+      showCatalogNotes(errors);
+      const loadedRecipe = typeof status.recipe === "string" ? status.recipe : "";
+      const preferredRecipe = keepSelection ? recipeEl.value : loadedRecipe;
+      renderRecipes(preferredRecipe);
+      const showingLoaded = currentRecipe() && currentRecipe().id === loadedRecipe;
+      const preferredModels = keepSelection ? selectedModels() : (showingLoaded ? (status.models || {}) : {});
+      renderSlots(preferredModels);
+      if (!keepSelection) {
+        const recipe = currentRecipe();
+        if (recipe) applyDefaults(recipe);
+      }
+      applyStatus(status);
+      if (!recipes.length) {
+        recipeNote.textContent = "No image recipes were found. Video recipes are hidden on this page.";
+      }
+    }
+
+    async function loadCapabilities() {
+      try {
+        capabilities = await api("/sdcpp/v1/capabilities");
+        const sampler = fields.sampler.value;
+        const scheduler = fields.scheduler.value;
+        applyCapabilities();
+        ensureOption(fields.sampler, sampler);
+        ensureOption(fields.scheduler, scheduler);
+      } catch (error) {
+        capabilities = null;
+      }
+    }
+
+    function watchLoading(token) {
+      clearInterval(loadTimer);
+      loadTimer = setInterval(async () => {
+        if (token !== loadToken) return;
+        try {
+          const status = await api("/sdcpp/v1/models/status");
+          if (token !== loadToken) return;
+          applyStatus(status);
+        } catch (error) {
+          if (token === loadToken) setMessage(modelStatusEl, error.message, true);
+        }
+      }, 500);
+    }
+
+    function stopLoadingWatch(token) {
+      if (token !== loadToken) return false;
+      clearInterval(loadTimer);
+      loadToken += 1;
+      return true;
+    }
+
+    async function loadModel() {
+      const recipe = currentRecipe();
+      if (!recipe || !selectionReady(recipe)) return;
+      const token = ++loadToken;
+      clearInterval(loadTimer);
+      modelStatus = { ...modelStatus, state: "loading", load_elapsed_seconds: 0 };
+      setMessage(modelStatusEl, "Loading model", false);
+      updateButtons();
+      watchLoading(token);
+      try {
+        const status = await api("/sdcpp/v1/models/load", {
+          method: "POST",
+          body: { recipe: recipe.id, models: selectedModels() },
+        });
+        if (!stopLoadingWatch(token)) return;
+        applyStatus(status);
+        await loadCapabilities();
+      } catch (error) {
+        if (!stopLoadingWatch(token)) return;
+        try {
+          await refreshStatus();
+        } catch (statusError) {
+          modelStatus = { state: "error", error: error.message };
+          updateButtons();
+        }
+        if (modelStatus.state !== "error") setMessage(modelStatusEl, error.message, true);
+        else setMessage(modelStatusEl, (typeof modelStatus.error === "string" && modelStatus.error) || error.message, true);
+      }
+    }
+
+    function dataUrl(b64, mime) {
+      if (typeof b64 !== "string" || !/^[A-Za-z0-9+/=\s]+$/.test(b64)) return "";
+      return `data:${mime};base64,${b64.replace(/\s/g, "")}`;
+    }
+
+    function mimeFor(format) {
+      if (format === "jpeg" || format === "jpg") return "image/jpeg";
+      if (format === "webp") return "image/webp";
+      return "image/png";
+    }
+
+    function showPicture(url, alt) {
+      if (!url) return;
+      placeholder.hidden = true;
+      imageEl.hidden = false;
+      imageEl.alt = alt;
+      imageEl.src = url;
+    }
+
+    function stageText(progress, status) {
+      if (status === "queued") return "Waiting in the queue";
+      if (!progress) return "Generating";
+      const stage = String(progress.stage || "generating").replaceAll("_", " ");
+      const detail = progress.detail ? ` (${String(progress.detail).replaceAll("_", " ")})` : "";
+      let counts = "";
+      if (progress.completed != null && progress.total != null) {
+        counts = ` ${progress.completed}/${progress.total}`;
+        if (progress.unit) counts += ` ${progress.unit}`;
+      }
+      const seconds = typeof progress.elapsed_ms === "number" ? ` · ${(progress.elapsed_ms / 1000).toFixed(1)}s` : "";
+      return `${stage}${detail}${counts}${seconds}`;
+    }
+
+    function showResult(job) {
+      downloads.replaceChildren();
+      const images = job.result && Array.isArray(job.result.images) ? job.result.images : [];
+      const mime = mimeFor(job.result && job.result.output_format);
+      const extension = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
+      images.forEach((item, index) => {
+        const url = dataUrl(item.b64_json, mime);
+        if (!url) return;
+        if (index === 0) showPicture(url, "Generated image");
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = images.length > 1 ? `image-${index + 1}.${extension}` : `image.${extension}`;
+        link.textContent = images.length > 1 ? `Download image ${index + 1}` : "Download image";
+        downloads.appendChild(link);
+      });
+    }
+
+    async function pollJob(id) {
+      try {
+        const job = await api(`/sdcpp/v1/jobs/${encodeURIComponent(id)}`);
+        if (id !== activeJobId) return;
+        setMessage(genStatus, stageText(job.progress, job.status), false);
+        if (job.preview && job.preview.b64_json && job.status !== "completed") {
+          showPicture(dataUrl(job.preview.b64_json, "image/png"), "Generation preview");
+        }
+        if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
+          activeJobId = "";
+          updateButtons();
+          if (job.status === "completed") {
+            showResult(job);
+            setMessage(genStatus, "Done", false);
+          } else if (job.status === "cancelled") {
+            setMessage(genStatus, "Cancelled", false);
+          } else {
+            setMessage(genStatus, messageFrom(job) || "Generation failed", true);
+          }
+          return;
+        }
+        setTimeout(() => pollJob(id), 500);
+      } catch (error) {
+        if (id !== activeJobId) return;
+        activeJobId = "";
+        updateButtons();
+        setMessage(genStatus, error.message, true);
+      }
+    }
+
+    function integerIn(input, minimum, maximum) {
+      const value = Number(input.value);
+      return Number.isInteger(value) && value >= minimum && value <= maximum;
+    }
+
+    function readRequest() {
+      if (!integerIn(fields.width, 64, 4096) || !integerIn(fields.height, 64, 4096)) {
+        throw new Error("Width and height must be whole numbers from 64 to 4096.");
+      }
+      if (!integerIn(fields.steps, 1, 1000)) {
+        throw new Error("Steps must be a whole number from 1 to 1000.");
+      }
+      const cfg = Number(fields.cfg.value);
+      if (!Number.isFinite(cfg) || cfg < 0 || cfg > 1000) {
+        throw new Error("CFG scale must be a number from 0 to 1000.");
+      }
+      const seed = Number(fields.seed.value);
+      if (fields.seed.value.trim() === "" || !Number.isInteger(seed)) {
+        throw new Error("Seed must be a whole number. Use -1 for a random seed.");
+      }
+      const sample = {
+        sample_steps: Number(fields.steps.value),
+        guidance: { txt_cfg: cfg },
+      };
+      if (fields.sampler.value) sample.sample_method = fields.sampler.value;
+      if (fields.scheduler.value) sample.scheduler = fields.scheduler.value;
+      return {
+        prompt: fields.prompt.value,
+        negative_prompt: fields.negative.value,
+        width: Number(fields.width.value),
+        height: Number(fields.height.value),
+        seed,
+        sample_params: sample,
+        preview: previewMode(),
+      };
+    }
+
+    async function generate(event) {
+      event.preventDefault();
+      if (generateButton.disabled) return;
+      let body;
+      try {
+        body = readRequest();
+      } catch (error) {
+        setMessage(genStatus, error.message, true);
+        return;
+      }
+      generateButton.disabled = true;
+      downloads.replaceChildren();
+      setMessage(genStatus, "Submitting", false);
+      try {
+        const created = await api("/sdcpp/v1/img_gen", { method: "POST", body });
+        activeJobId = created.id;
+        updateButtons();
+        setMessage(genStatus, "Queued", false);
+        pollJob(created.id);
+      } catch (error) {
+        activeJobId = "";
+        updateButtons();
+        setMessage(genStatus, error.message, true);
+      }
+    }
+
+    async function cancelJob() {
+      if (!activeJobId) return;
+      const id = activeJobId;
+      try {
+        await api(`/sdcpp/v1/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} });
+        setMessage(genStatus, "Cancelling", false);
+      } catch (error) {
+        setMessage(genStatus, error.message, true);
+      }
+    }
+
+    recipeEl.addEventListener("change", () => {
+      const recipe = currentRecipe();
+      recipeNote.textContent = recipe && recipe.description ? recipe.description : "";
+      if (recipe) applyDefaults(recipe);
+      renderSlots(null);
+    });
+
+    loadButton.addEventListener("click", () => {
+      loadModel().catch((error) => setMessage(modelStatusEl, error.message, true));
+    });
+
+    refreshButton.addEventListener("click", async () => {
+      refreshButton.disabled = true;
+      try {
+        await api("/sdcpp/v1/models/refresh", { method: "POST", body: {} });
+        await loadCatalog(true);
+      } catch (error) {
+        setMessage(modelStatusEl, error.message, true);
+      } finally {
+        updateButtons();
+      }
+    });
+
+    form.addEventListener("submit", (event) => {
+      generate(event).catch((error) => setMessage(genStatus, error.message, true));
+    });
+    cancelButton.addEventListener("click", cancelJob);
+
+    loadCatalog(false)
+      .then(loadCapabilities)
+      .catch((error) => setMessage(modelStatusEl, error.message, true));
+  </script>
+</body>
+</html>

@@ -503,6 +503,21 @@ directory:
 ```
 
 This lets you develop or test the frontend without rebuilding the server binary.
+A ready-made text-to-image page is in
+[examples/simple-ui](../simple-ui/README.md). From the repository root, pass
+that file to the launcher:
+
+**Windows (PowerShell)**
+
+```powershell
+.\start-server.bat --serve-html-path examples\simple-ui\index.html
+```
+
+**Linux/macOS**
+
+```sh
+sh ./start-server.sh --serve-html-path examples/simple-ui/index.html
+```
 
 ### Frontend repository
 
